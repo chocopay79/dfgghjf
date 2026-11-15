@@ -1,0 +1,1669 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>VISCERA — Организм Монстра</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', monospace; color: #c33; }
+  #game { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: none; }
+  canvas { display: block; image-rendering: pixelated; }
+  #hud {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+  }
+  .bar {
+    position: absolute; left: 20px; width: 220px; height: 14px;
+    border: 1px solid #600; background: rgba(0,0,0,0.6);
+  }
+  #hpBar { top: 20px; }
+  #batBar { top: 44px; }
+  #sanBar { top: 68px; }
+  .bar .fill { height: 100%; transition: width 0.2s; }
+  #hpBar .fill { background: linear-gradient(90deg, #600, #f33); }
+  #batBar .fill { background: linear-gradient(90deg, #330, #fc3); }
+  #sanBar .fill { background: linear-gradient(90deg, #033, #3cf); }
+  .bar .label {
+    position: absolute; left: 6px; top: -1px; font-size: 11px;
+    color: #fff; text-shadow: 1px 1px 0 #000; letter-spacing: 1px;
+  }
+  #minimap {
+    position: absolute; top: 20px; right: 20px;
+    border: 1px solid #600; background: rgba(0,0,0,0.7);
+  }
+  #msg {
+    position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+    font-size: 14px; color: #f99; text-shadow: 0 0 8px #f00;
+    opacity: 0; transition: opacity 0.5s;
+    text-align: center; letter-spacing: 2px;
+  }
+  #crosshair {
+    position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+    background: #f55; border-radius: 50%; transform: translate(-50%, -50%);
+    box-shadow: 0 0 6px #f00;
+  }
+  #overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle, #200 0%, #000 100%);
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    z-index: 100; text-align: center;
+  }
+  #overlay h1 {
+    font-size: 64px; color: #c33; letter-spacing: 12px;
+    text-shadow: 0 0 20px #f00, 0 0 40px #600;
+    margin-bottom: 20px; animation: pulse 2s infinite;
+  }
+  #overlay p { color: #a66; margin: 6px 0; font-size: 14px; letter-spacing: 2px; }
+  #overlay button {
+    margin-top: 30px; padding: 12px 30px; background: #300; color: #f99;
+    border: 1px solid #c33; font-family: inherit; font-size: 16px;
+    letter-spacing: 4px; cursor: pointer; transition: all 0.3s;
+  }
+  #overlay button:hover { background: #600; color: #fff; box-shadow: 0 0 20px #f00; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+  #deathOverlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(30,0,0,0.85); display: none;
+    flex-direction: column; justify-content: center; align-items: center;
+    z-index: 200; text-align: center;
+  }
+  #deathOverlay h1 { font-size: 80px; color: #f00; letter-spacing: 16px; text-shadow: 0 0 30px #f00; }
+  #deathOverlay p { color: #f99; margin: 10px 0; letter-spacing: 2px; }
+  #deathOverlay button {
+    margin-top: 30px; padding: 12px 30px; background: #300; color: #f99;
+    border: 1px solid #c33; font-family: inherit; font-size: 16px;
+    letter-spacing: 4px; cursor: pointer;
+  }
+  #deathOverlay button:hover { background: #600; color: #fff; }
+  .hint { position: absolute; bottom: 10px; left: 10px; color: #633; font-size: 11px; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="scene"></canvas>
+  <canvas id="light" style="position:absolute;top:0;left:0;mix-blend-mode:multiply;pointer-events:none;"></canvas>
+  <div id="hud">
+    <div class="bar" id="hpBar"><div class="fill" style="width:100%"></div><div class="label">HP</div></div>
+    <div class="bar" id="batBar"><div class="fill" style="width:100%"></div><div class="label">АТФ</div></div>
+    <div class="bar" id="sanBar"><div class="fill" style="width:100%"></div><div class="label">РАССУДОК</div></div>
+    <canvas id="minimap" width="140" height="140"></canvas>
+    <div id="crosshair"></div>
+    <div id="msg"></div>
+    <div class="hint">WASD — движение · МЫШЬ — обзор · SHIFT — бег · F — фонарик · E — эхолокация</div>
+  </div>
+</div>
+
+<div id="overlay">
+  <h1>VISCERA</h1>
+  <p>ТЫ ПРОГЛОЧЕН. НАЙДИ СФИНКТЕР.</p>
+  <p>СВЕТ ПРИВЛЕКАЕТ ИХ. ТЬМА ПОЖИРАЕТ РАЗУМ.</p>
+  <p id="metaInfo" style="color:#666;margin-top:20px;"></p>
+  <button id="startBtn">ВОЙТИ В ОРГАНИЗМ</button>
+</div>
+
+<div id="deathOverlay">
+  <h1>СМЕРТЬ</h1>
+  <p id="deathReason">ОРГАНИЗМ ПЕРЕВАРИЛ ТЕБЯ</p>
+  <p id="deathStats"></p>
+  <button id="restartBtn">ПЕРЕРОДИТЬСЯ</button>
+</div>
+
+<script>
+'use strict';
+
+// ============================================================
+// КОНСТАНТЫ И СОСТОЯНИЕ
+// ============================================================
+const CFG = {
+  MAP_W: 40, MAP_H: 40,
+  TILE: 64,
+  FOV: Math.PI / 3,
+  MAX_DEPTH: 20,
+  BASE_LIGHT_RADIUS: 1.8,  // в тайлах
+  FLASHLIGHT_RANGE: 8,
+  FLASHLIGHT_ANGLE: Math.PI / 6,
+  MOVE_SPEED: 2.8,
+  RUN_MULT: 1.6,
+  ROT_SPEED: 2.2,
+  MOUSE_SENS: 0.0022,
+  STAMINA_MAX: 100,
+  HP_MAX: 100,
+  BATTERY_MAX: 100,
+  SANITY_MAX: 100,
+  BATTERY_DRAIN: 1.8,   // в секунду при включенном фонарике
+  SANITY_DRAIN: 4.5,    // в секунду в темноте
+  SANITY_REGEN: 1.2,    // в секунду на свету
+  STAMINA_DRAIN: 18,
+  STAMINA_REGEN: 12,
+};
+
+const TILE = {
+  FLOOR: 0,
+  WALL_FLESH: 1,
+  WALL_VEIN: 2,
+  WALL_SLIME: 3,
+  EXIT: 9,
+};
+
+const state = {
+  map: null,
+  player: null,
+  enemies: [],
+  items: [],
+  exitPos: null,
+  running: false,
+  paused: false,
+  time: 0,
+  dt: 0,
+  lastTime: 0,
+  msgTimer: 0,
+  echolocateTimer: 0,
+  meta: loadMeta(),
+  screenShake: 0,
+  damageFlash: 0,
+};
+
+// ============================================================
+// МЕТА-ПРОГРЕССИЯ (localStorage)
+// ============================================================
+function loadMeta() {
+  try {
+    const raw = localStorage.getItem('viscera_meta');
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return { mass: 0, runs: 0, bestDepth: 0, mutations: { tapetum: 0, chitin: 0, phototaxis: 0, echo: 0 } };
+}
+function saveMeta() {
+  try { localStorage.setItem('viscera_meta', JSON.stringify(state.meta)); } catch(e) {}
+}
+
+// ============================================================
+// ПРОЦЕДУРНЫЕ ТЕКСТУРЫ (генерируются при старте)
+// ============================================================
+const textures = {};
+function generateTextures() {
+  const SIZE = 64;
+  // --- Текстура 1: ПЛОТЬ ---
+  textures.flesh = makeTexture(SIZE, (ctx, s) => {
+    ctx.fillStyle = '#3a0808';
+    ctx.fillRect(0, 0, s, s);
+    // Шум
+    const img = ctx.getImageData(0, 0, s, s);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 60;
+      img.data[i] = Math.max(0, Math.min(255, 60 + n));
+      img.data[i+1] = Math.max(0, Math.min(255, 10 + n*0.3));
+      img.data[i+2] = Math.max(0, Math.min(255, 10 + n*0.3));
+      img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    // Вены
+    for (let v = 0; v < 4; v++) {
+      ctx.strokeStyle = `rgba(${100+Math.random()*60}, ${10+Math.random()*20}, ${20+Math.random()*20}, ${0.5+Math.random()*0.4})`;
+      ctx.lineWidth = 1 + Math.random() * 2;
+      ctx.beginPath();
+      let x = Math.random() * s, y = 0;
+      ctx.moveTo(x, y);
+      for (let i = 0; i < 6; i++) {
+        x += (Math.random() - 0.5) * 20;
+        y += s / 6;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // Блик
+    const g = ctx.createRadialGradient(s*0.3, s*0.3, 0, s*0.3, s*0.3, s*0.6);
+    g.addColorStop(0, 'rgba(180,40,40,0.3)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+  });
+
+  // --- Текстура 2: ВЕНА ---
+  textures.vein = makeTexture(SIZE, (ctx, s) => {
+    ctx.fillStyle = '#1a0505';
+    ctx.fillRect(0, 0, s, s);
+    const img = ctx.getImageData(0, 0, s, s);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 40;
+      img.data[i] = Math.max(0, Math.min(255, 40 + n));
+      img.data[i+1] = Math.max(0, Math.min(255, 5 + n*0.2));
+      img.data[i+2] = Math.max(0, Math.min(255, 10 + n*0.2));
+      img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    // Пульсирующая вена по центру
+    ctx.strokeStyle = 'rgba(200,30,30,0.8)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(s/2, 0);
+    ctx.bezierCurveTo(s/2 + 8, s*0.3, s/2 - 8, s*0.7, s/2, s);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,100,100,0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+
+  // --- Текстура 3: СЛИЗЬ ---
+  textures.slime = makeTexture(SIZE, (ctx, s) => {
+    ctx.fillStyle = '#0a1a08';
+    ctx.fillRect(0, 0, s, s);
+    const img = ctx.getImageData(0, 0, s, s);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 50;
+      img.data[i] = Math.max(0, Math.min(255, 20 + n*0.3));
+      img.data[i+1] = Math.max(0, Math.min(255, 40 + n));
+      img.data[i+2] = Math.max(0, Math.min(255, 15 + n*0.4));
+      img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    // Капли слизи
+    for (let d = 0; d < 8; d++) {
+      const x = Math.random() * s, y = Math.random() * s;
+      const r = 3 + Math.random() * 6;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(150,220,80,0.7)');
+      g.addColorStop(1, 'rgba(40,80,20,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI*2);
+      ctx.fill();
+    }
+  });
+
+  // --- Текстура ПОЛА ---
+  textures.floor = makeTexture(SIZE, (ctx, s) => {
+    ctx.fillStyle = '#1a0808';
+    ctx.fillRect(0, 0, s, s);
+    const img = ctx.getImageData(0, 0, s, s);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 30;
+      img.data[i] = Math.max(0, Math.min(255, 30 + n));
+      img.data[i+1] = Math.max(0, Math.min(255, 8 + n*0.3));
+      img.data[i+2] = Math.max(0, Math.min(255, 8 + n*0.3));
+      img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  });
+
+  // --- Текстура ПОТОЛКА ---
+  textures.ceiling = makeTexture(SIZE, (ctx, s) => {
+    ctx.fillStyle = '#0a0303';
+    ctx.fillRect(0, 0, s, s);
+    const img = ctx.getImageData(0, 0, s, s);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 20;
+      img.data[i] = Math.max(0, Math.min(255, 15 + n));
+      img.data[i+1] = Math.max(0, Math.min(255, 4 + n*0.2));
+      img.data[i+2] = Math.max(0, Math.min(255, 4 + n*0.2));
+      img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  });
+
+  // --- Текстура ВЫХОДА (СФИНКТЕР) ---
+  textures.exit = makeTexture(SIZE, (ctx, s) => {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, s, s);
+    const g = ctx.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+    g.addColorStop(0, '#fc3');
+    g.addColorStop(0.3, '#f60');
+    g.addColorStop(0.7, '#600');
+    g.addColorStop(1, '#000');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+    // Кольца
+    for (let r = 0; r < 4; r++) {
+      ctx.strokeStyle = `rgba(255,${200-r*40},0,${0.6-r*0.1})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(s/2, s/2, 8 + r*8, 0, Math.PI*2);
+      ctx.stroke();
+    }
+  });
+}
+
+function makeTexture(size, drawFn) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  drawFn(ctx, size);
+  return { canvas: c, data: ctx.getImageData(0, 0, size, size).data, size };
+}
+
+// ============================================================
+// ГЕНЕРАЦИЯ КАРТЫ (BSP + проверка связности)
+// ============================================================
+function generateMap() {
+  const W = CFG.MAP_W, H = CFG.MAP_H;
+  const grid = new Array(W * H).fill(TILE.WALL_FLESH);
+
+  // BSP дерево
+  const leaves = [];
+  function split(x, y, w, h, depth) {
+    if (depth > 4 || w < 8 || h < 8) {
+      // Создаём комнату внутри листа
+      const rw = 4 + Math.floor(Math.random() * Math.max(1, w - 6));
+      const rh = 4 + Math.floor(Math.random() * Math.max(1, h - 6));
+      const rx = x + 1 + Math.floor(Math.random() * Math.max(1, w - rw - 1));
+      const ry = y + 1 + Math.floor(Math.random() * Math.max(1, h - rh - 1));
+      leaves.push({ x: rx, y: ry, w: rw, h: rh, cx: rx + Math.floor(rw/2), cy: ry + Math.floor(rh/2) });
+      return;
+    }
+    if (w > h) {
+      const splitAt = Math.floor(w * (0.35 + Math.random() * 0.3));
+      split(x, y, splitAt, h, depth+1);
+      split(x + splitAt, y, w - splitAt, h, depth+1);
+    } else {
+      const splitAt = Math.floor(h * (0.35 + Math.random() * 0.3));
+      split(x, y, w, splitAt, depth+1);
+      split(x, y + splitAt, w, h - splitAt, depth+1);
+    }
+  }
+  split(1, 1, W - 2, H - 2, 0);
+
+  // Вырезаем комнаты
+  for (const r of leaves) {
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let x = r.x; x < r.x + r.w; x++) {
+        grid[y * W + x] = TILE.FLOOR;
+      }
+    }
+  }
+
+  // Соединяем комнаты коридорами (минимальное остовное дерево + случайные доп. связи)
+  // Сортируем комнаты по позиции для предсказуемости
+  const rooms = leaves.slice();
+  const connected = [0];
+  const unconnected = rooms.slice(1).map((_, i) => i + 1);
+
+  function carveCorridor(r1, r2) {
+    let x = r1.cx, y = r1.cy;
+    const tx = r2.cx, ty = r2.cy;
+    const goXFirst = Math.random() < 0.5;
+    if (goXFirst) {
+      while (x !== tx) {
+        grid[y * W + x] = TILE.FLOOR;
+        if (y + 1 < H - 1) grid[(y+1) * W + x] = TILE.FLOOR;
+        x += (tx > x) ? 1 : -1;
+      }
+      while (y !== ty) {
+        grid[y * W + x] = TILE.FLOOR;
+        if (x + 1 < W - 1) grid[y * W + (x+1)] = TILE.FLOOR;
+        y += (ty > y) ? 1 : -1;
+      }
+    } else {
+      while (y !== ty) {
+        grid[y * W + x] = TILE.FLOOR;
+        if (x + 1 < W - 1) grid[y * W + (x+1)] = TILE.FLOOR;
+        y += (ty > y) ? 1 : -1;
+      }
+      while (x !== tx) {
+        grid[y * W + x] = TILE.FLOOR;
+        if (y + 1 < H - 1) grid[(y+1) * W + x] = TILE.FLOOR;
+        x += (tx > x) ? 1 : -1;
+      }
+    }
+    grid[ty * W + tx] = TILE.FLOOR;
+  }
+
+  while (unconnected.length > 0) {
+    let bestDist = Infinity, bestC = -1, bestU = -1;
+    for (const c of connected) {
+      for (const u of unconnected) {
+        const dx = rooms[c].cx - rooms[u].cx;
+        const dy = rooms[c].cy - rooms[u].cy;
+        const d = dx*dx + dy*dy;
+        if (d < bestDist) { bestDist = d; bestC = c; bestU = u; }
+      }
+    }
+    carveCorridor(rooms[bestC], rooms[bestU]);
+    connected.push(bestU);
+    unconnected.splice(unconnected.indexOf(bestU), 1);
+  }
+
+  // Несколько дополнительных коридоров для циклов (интересный лабиринт)
+  for (let i = 0; i < Math.floor(rooms.length / 3); i++) {
+    const a = Math.floor(Math.random() * rooms.length);
+    const b = Math.floor(Math.random() * rooms.length);
+    if (a !== b) carveCorridor(rooms[a], rooms[b]);
+  }
+
+  // Разнообразие стен: случайно меняем тип некоторых стен
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      if (grid[y * W + x] !== TILE.FLOOR) {
+        // Проверяем, граничит ли с полом
+        let adjFloor = false;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (grid[(y+dy) * W + (x+dx)] === TILE.FLOOR) adjFloor = true;
+          }
+        }
+        if (adjFloor) {
+          const r = Math.random();
+          if (r < 0.15) grid[y * W + x] = TILE.WALL_VEIN;
+          else if (r < 0.22) grid[y * W + x] = TILE.WALL_SLIME;
+        }
+      }
+    }
+  }
+
+  // === ПРОВЕРКА СВЯЗНОСТИ (BFS) ===
+  // Находим любую клетку пола
+  let startFloor = -1;
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] === TILE.FLOOR) { startFloor = i; break; }
+  }
+  const reachable = bfs(grid, W, H, startFloor % W, Math.floor(startFloor / W));
+
+  // Если есть несвязные клетки пола — соединяем их коридорами
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (grid[y * W + x] === TILE.FLOOR && !reachable[y * W + x]) {
+        // Находим ближайшую достижимую клетку и ведём коридор
+        let bestDist = Infinity, bestX = -1, bestY = -1;
+        for (let ry = 0; ry < H; ry++) {
+          for (let rx = 0; rx < W; rx++) {
+            if (reachable[ry * W + rx]) {
+              const d = Math.abs(rx - x) + Math.abs(ry - y);
+              if (d < bestDist) { bestDist = d; bestX = rx; bestY = ry; }
+            }
+          }
+        }
+        // Прямой коридор
+        let cx = x, cy = y;
+        while (cx !== bestX) {
+          grid[cy * W + cx] = TILE.FLOOR;
+          cx += (bestX > cx) ? 1 : -1;
+        }
+        while (cy !== bestY) {
+          grid[cy * W + cx] = TILE.FLOOR;
+          cy += (bestY > cy) ? 1 : -1;
+        }
+        // Обновляем reachable
+        const newReach = bfs(grid, W, H, x, y);
+        for (let i = 0; i < grid.length; i++) if (newReach[i]) reachable[i] = true;
+      }
+    }
+  }
+
+  // Размещаем игрока в первой комнате
+  const playerRoom = rooms[0];
+  const player = {
+    x: playerRoom.cx + 0.5,
+    y: playerRoom.cy + 0.5,
+    dir: 0,
+    hp: CFG.HP_MAX,
+    battery: CFG.BATTERY_MAX * 0.3, // Начинаем с 30%
+    sanity: CFG.SANITY_MAX,
+    stamina: CFG.STAMINA_MAX,
+    flashlight: true,
+    depth: 1,
+  };
+
+  // Выход — в самой дальней комнате от игрока (BFS)
+  const distFromPlayer = bfsDist(grid, W, H, Math.floor(player.x), Math.floor(player.y));
+  let maxDist = 0, exitX = -1, exitY = -1;
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] === TILE.FLOOR && distFromPlayer[i] > maxDist) {
+      maxDist = distFromPlayer[i];
+      exitX = i % W;
+      exitY = Math.floor(i / W);
+    }
+  }
+  grid[exitY * W + exitX] = TILE.EXIT;
+
+  // Предметы: еда и АТФ
+  const items = [];
+  const floorCells = [];
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] === TILE.FLOOR) {
+      const dx = (i % W) - Math.floor(player.x);
+      const dy = Math.floor(i / W) - Math.floor(player.y);
+      if (dx*dx + dy*dy > 16) floorCells.push(i); // Не слишком близко к старту
+    }
+  }
+  shuffle(floorCells);
+  const foodCount = 6 + Math.floor(Math.random() * 4);
+  const batteryCount = 5 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < foodCount && i < floorCells.length; i++) {
+    const idx = floorCells[i];
+    items.push({ type: 'food', x: (idx % W) + 0.5, y: Math.floor(idx / W) + 0.5, taken: false });
+  }
+  for (let i = foodCount; i < foodCount + batteryCount && i < floorCells.length; i++) {
+    const idx = floorCells[i];
+    items.push({ type: 'battery', x: (idx % W) + 0.5, y: Math.floor(idx / W) + 0.5, taken: false });
+  }
+
+  // Враги
+  const enemies = [];
+  const enemyCount = 4 + Math.floor(Math.random() * 3) + player.depth;
+  for (let i = 0; i < enemyCount && i < floorCells.length; i++) {
+    const idx = floorCells[foodCount + batteryCount + i] || floorCells[i];
+    const dx = (idx % W) - Math.floor(player.x);
+    const dy = Math.floor(idx / W) - Math.floor(player.y);
+    if (dx*dx + dy*dy < 25) continue; // Не рядом с игроком
+    const type = Math.random() < 0.65 ? 'phage' : 'macro';
+    enemies.push(createEnemy(type, (idx % W) + 0.5, Math.floor(idx / W) + 0.5));
+  }
+
+  return { grid, W, H, player, enemies, items, exitPos: { x: exitX, y: exitY } };
+}
+
+function bfs(grid, W, H, sx, sy) {
+  const visited = new Array(W * H).fill(false);
+  const queue = [[sx, sy]];
+  visited[sy * W + sx] = true;
+  while (queue.length) {
+    const [x, y] = queue.shift();
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const idx = ny * W + nx;
+      if (!visited[idx] && grid[idx] !== TILE.WALL_FLESH && grid[idx] !== TILE.WALL_VEIN && grid[idx] !== TILE.WALL_SLIME) {
+        visited[idx] = true;
+        queue.push([nx, ny]);
+      }
+    }
+  }
+  return visited;
+}
+
+function bfsDist(grid, W, H, sx, sy) {
+  const dist = new Array(W * H).fill(Infinity);
+  const queue = [[sx, sy]];
+  dist[sy * W + sx] = 0;
+  while (queue.length) {
+    const [x, y] = queue.shift();
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const idx = ny * W + nx;
+      if (grid[idx] === TILE.WALL_FLESH || grid[idx] === TILE.WALL_VEIN || grid[idx] === TILE.WALL_SLIME) continue;
+      if (dist[idx] > dist[y * W + x] + 1) {
+        dist[idx] = dist[y * W + x] + 1;
+        queue.push([nx, ny]);
+      }
+    }
+  }
+  return dist;
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+// ============================================================
+// ВРАГИ
+// ============================================================
+function createEnemy(type, x, y) {
+  if (type === 'phage') {
+    return {
+      type, x, y, hp: 1, speed: 2.5, damage: 20,
+      state: 'patrol', // patrol, chase, attack
+      target: null,
+      patrolDir: Math.random() * Math.PI * 2,
+      patrolTimer: 2 + Math.random() * 3,
+      detectRadius: 6,
+      attackCooldown: 0,
+      animTime: Math.random() * 10,
+      size: 0.4,
+    };
+  } else {
+    return {
+      type, x, y, hp: 5, speed: 1.0, damage: 40,
+      state: 'patrol',
+      target: null,
+      patrolDir: Math.random() * Math.PI * 2,
+      patrolTimer: 3 + Math.random() * 4,
+      detectRadius: 5,
+      attackCooldown: 0,
+      animTime: Math.random() * 10,
+      size: 0.7,
+    };
+  }
+}
+
+function hasLineOfSight(grid, W, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const steps = Math.ceil(dist * 4);
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = Math.floor(x1 + dx * t);
+    const y = Math.floor(y1 + dy * t);
+    if (x < 0 || y < 0 || x >= W || y >= Math.floor(grid.length / W)) return false;
+    const tile = grid[y * W + x];
+    if (tile === TILE.WALL_FLESH || tile === TILE.WALL_VEIN || tile === TILE.WALL_SLIME) return false;
+  }
+  return true;
+}
+
+function updateEnemy(e, dt) {
+  const p = state.player;
+  const dx = p.x - e.x, dy = p.y - e.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  e.animTime += dt;
+
+  // Проверка обнаружения
+  const canSee = dist < e.detectRadius && hasLineOfSight(state.map.grid, state.map.W, e.x, e.y, p.x, p.y);
+  // Слышит ли игрока (если тот бежит)
+  const canHear = dist < 4 && p.stamina < CFG.STAMINA_MAX * 0.7;
+  // Фаги реагируют на свет фонарика, направленный на них
+  const litByFlash = p.flashlight && p.battery > 0 && dist < CFG.FLASHLIGHT_RANGE && isEnemyInFlashlight(e);
+
+  if (canSee || canHear || (e.type === 'phage' && litByFlash)) {
+    e.state = 'chase';
+    e.target = { x: p.x, y: p.y };
+  } else if (e.state === 'chase' && dist > e.detectRadius * 1.5) {
+    e.state = 'patrol';
+  }
+
+  let moveX = 0, moveY = 0;
+  if (e.state === 'chase' && e.target) {
+    const tdx = e.target.x - e.x, tdy = e.target.y - e.y;
+    const td = Math.sqrt(tdx*tdx + tdy*tdy);
+    if (td > 0.01) {
+      moveX = (tdx / td) * e.speed * dt;
+      moveY = (tdy / td) * e.speed * dt;
+    }
+    // Атака
+    if (dist < 0.7 && e.attackCooldown <= 0) {
+      damagePlayer(e.damage);
+      e.attackCooldown = 1.2;
+      state.screenShake = 0.5;
+    }
+  } else {
+    // Патрулирование
+    e.patrolTimer -= dt;
+    if (e.patrolTimer <= 0) {
+      e.patrolDir = Math.random() * Math.PI * 2;
+      e.patrolTimer = 2 + Math.random() * 3;
+    }
+    moveX = Math.cos(e.patrolDir) * e.speed * 0.4 * dt;
+    moveY = Math.sin(e.patrolDir) * e.speed * 0.4 * dt;
+  }
+
+  // Движение с коллизией
+  const nx = e.x + moveX, ny = e.y + moveY;
+  if (!isWall(nx, e.y)) e.x = nx;
+  else e.patrolDir = Math.random() * Math.PI * 2;
+  if (!isWall(e.x, ny)) e.y = ny;
+  else e.patrolDir = Math.random() * Math.PI * 2;
+
+  if (e.attackCooldown > 0) e.attackCooldown -= dt;
+}
+
+function isEnemyInFlashlight(e) {
+  const p = state.player;
+  const dx = e.x - p.x, dy = e.y - p.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist > CFG.FLASHLIGHT_RANGE) return false;
+  const angleToEnemy = Math.atan2(dy, dx);
+  const playerAngle = Math.atan2(p.dirY, p.dirX);
+  let diff = angleToEnemy - playerAngle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return Math.abs(diff) < CFG.FLASHLIGHT_ANGLE;
+}
+
+// ============================================================
+// ИГРОК
+// ============================================================
+function updatePlayer(dt) {
+  const p = state.player;
+  const keys = input.keys;
+
+  // Поворот мышью уже обработан в mousemove
+
+  // Поворот клавишами (если мышь не захвачена)
+  if (!input.pointerLocked) {
+    if (keys['ArrowLeft'] || keys['KeyQ']) p.dir -= CFG.ROT_SPEED * dt;
+    if (keys['ArrowRight'] || keys['KeyE_']) p.dir += CFG.ROT_SPEED * dt;
+  }
+  // Обновляем dirX/dirY
+  p.dirX = Math.cos(p.dir);
+  p.dirY = Math.sin(p.dir);
+  // Plane (для raycasting)
+  const planeLen = Math.tan(CFG.FOV / 2);
+  p.planeX = -p.dirY * planeLen;
+  p.planeY = p.dirX * planeLen;
+
+  // Бег
+  const running = keys['ShiftLeft'] || keys['ShiftRight'];
+  let speed = CFG.MOVE_SPEED;
+  if (running && p.stamina > 0 && (keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD'])) {
+    speed *= CFG.RUN_MULT;
+    p.stamina = Math.max(0, p.stamina - CFG.STAMINA_DRAIN * dt);
+  } else {
+    p.stamina = Math.min(CFG.STAMINA_MAX, p.stamina + CFG.STAMINA_REGEN * dt);
+  }
+
+  // Движение
+  let mx = 0, my = 0;
+  if (keys['KeyW']) { mx += p.dirX; my += p.dirY; }
+  if (keys['KeyS']) { mx -= p.dirX; my -= p.dirY; }
+  if (keys['KeyA']) { mx += p.dirY; my -= p.dirX; }
+  if (keys['KeyD']) { mx -= p.dirY; my += p.dirX; }
+  const ml = Math.sqrt(mx*mx + my*my);
+  if (ml > 0) {
+    mx /= ml; my /= ml;
+    const nx = p.x + mx * speed * dt;
+    const ny = p.y + my * speed * dt;
+    if (!isWall(nx, p.y)) p.x = nx;
+    if (!isWall(p.x, ny)) p.y = ny;
+    // Шаги
+    stepTimer -= dt;
+    if (stepTimer <= 0) {
+      audio.playStep(running);
+      stepTimer = running ? 0.28 : 0.45;
+    }
+  }
+
+  // Фонарик
+  if (p.flashlight && p.battery > 0) {
+    p.battery = Math.max(0, p.battery - CFG.BATTERY_DRAIN * dt);
+    if (p.battery <= 0) showMessage('АТФ ИСЧЕРПАН');
+  }
+
+  // Рассудок
+  const inLight = p.flashlight && p.battery > 5;
+  if (inLight) {
+    p.sanity = Math.min(CFG.SANITY_MAX, p.sanity + CFG.SANITY_REGEN * dt);
+  } else {
+    p.sanity = Math.max(0, p.sanity - CFG.SANITY_DRAIN * dt);
+    if (p.sanity <= 0) {
+      die('РАССУДОК ПОГЛОЩЁН ТЬМОЙ');
+    }
+  }
+
+  // Подбор предметов
+  for (const it of state.items) {
+    if (it.taken) continue;
+    const dx = it.x - p.x, dy = it.y - p.y;
+    if (dx*dx + dy*dy < 0.5) {
+      it.taken = true;
+      if (it.type === 'food') {
+        p.hp = Math.min(CFG.HP_MAX, p.hp + 25);
+        showMessage('+25 HP');
+        audio.playPickup();
+      } else if (it.type === 'battery') {
+        p.battery = Math.min(CFG.BATTERY_MAX, p.battery + 40);
+        showMessage('+АТФ');
+        audio.playPickup();
+      }
+    }
+  }
+
+  // Проверка выхода
+  const tileX = Math.floor(p.x), tileY = Math.floor(p.y);
+  if (state.map.grid[tileY * state.map.W + tileX] === TILE.EXIT) {
+    nextLevel();
+  }
+
+  // Эхолокация
+  if (state.echolocateTimer > 0) state.echolocateTimer -= dt;
+}
+
+let stepTimer = 0;
+
+function isWall(x, y) {
+  const tx = Math.floor(x), ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= state.map.W || ty >= state.map.H) return true;
+  const t = state.map.grid[ty * state.map.W + tx];
+  return t === TILE.WALL_FLESH || t === TILE.WALL_VEIN || t === TILE.WALL_SLIME;
+}
+
+function damagePlayer(amount) {
+  const p = state.player;
+  // Мутация «Хитин»
+  const reduction = state.meta.mutations.chitin * 0.1;
+  amount = Math.floor(amount * (1 - reduction));
+  p.hp -= amount;
+  state.damageFlash = 0.4;
+  audio.playHit();
+  if (p.hp <= 0) die('ОРГАНИЗМ ПЕРЕВАРИЛ ТЕБЯ');
+}
+
+function die(reason) {
+  if (!state.running) return;
+  state.running = false;
+  state.meta.runs++;
+  state.meta.mass += 10 + state.player.depth * 5;
+  if (state.player.depth > state.meta.bestDepth) state.meta.bestDepth = state.player.depth;
+  saveMeta();
+  document.getElementById('deathReason').textContent = reason;
+  document.getElementById('deathStats').textContent =
+    `Глубина: ${state.player.depth} · Клеточная масса получена: ${10 + state.player.depth * 5}`;
+  document.getElementById('deathOverlay').style.display = 'flex';
+  document.exitPointerLock && document.exitPointerLock();
+}
+
+function nextLevel() {
+  state.player.depth++;
+  showMessage(`СФИНКТЕР ПРОЙДЁН · ГЛУБИНА ${state.player.depth}`);
+  audio.playPickup();
+  // Генерируем новую карту, сохраняя игрока
+  const oldDepth = state.player.depth;
+  const oldHp = state.player.hp;
+  const newMap = generateMap();
+  state.map = newMap;
+  state.player = newMap.player;
+  state.player.depth = oldDepth;
+  state.player.hp = Math.min(CFG.HP_MAX, oldHp + 20);
+  state.enemies = newMap.enemies;
+  state.items = newMap.items;
+  state.exitPos = newMap.exitPos;
+}
+
+// ============================================================
+// РЕНДЕРИНГ (RAYCASTING)
+// ============================================================
+const sceneCanvas = document.getElementById('scene');
+const sceneCtx = sceneCanvas.getContext('2d');
+const lightCanvas = document.getElementById('light');
+const lightCtx = lightCanvas.getContext('2d');
+const minimapCanvas = document.getElementById('minimap');
+const minimapCtx = minimapCanvas.getContext('2d');
+
+let W = 0, H = 0;
+const zbuffer = [];
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  // Рендерим в меньшем разрешении для производительности
+  const scale = Math.min(1, 720 / H);
+  sceneCanvas.width = Math.floor(W * scale);
+  sceneCanvas.height = Math.floor(H * scale);
+  sceneCanvas.style.width = W + 'px';
+  sceneCanvas.style.height = H + 'px';
+  lightCanvas.width = sceneCanvas.width;
+  lightCanvas.height = sceneCanvas.height;
+  lightCanvas.style.width = W + 'px';
+  lightCanvas.style.height = H + 'px';
+  sceneCtx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resize);
+
+function render() {
+  const sw = sceneCanvas.width, sh = sceneCanvas.height;
+  const p = state.player;
+  const map = state.map;
+
+  // Screen shake
+  let shakeX = 0, shakeY = 0;
+  if (state.screenShake > 0) {
+    shakeX = (Math.random() - 0.5) * state.screenShake * 10;
+    shakeY = (Math.random() - 0.5) * state.screenShake * 10;
+  }
+
+  sceneCtx.save();
+  sceneCtx.translate(shakeX, shakeY);
+
+  // Потолок и пол — градиент
+  const ceilGrad = sceneCtx.createLinearGradient(0, 0, 0, sh/2);
+  ceilGrad.addColorStop(0, '#0a0303');
+  ceilGrad.addColorStop(1, '#1a0808');
+  sceneCtx.fillStyle = ceilGrad;
+  sceneCtx.fillRect(0, 0, sw, sh/2);
+
+  const floorGrad = sceneCtx.createLinearGradient(0, sh/2, 0, sh);
+  floorGrad.addColorStop(0, '#1a0808');
+  floorGrad.addColorStop(1, '#2a0a0a');
+  sceneCtx.fillStyle = floorGrad;
+  sceneCtx.fillRect(0, sh/2, sw, sh/2);
+
+  // Raycasting стен
+  for (let x = 0; x < sw; x++) {
+    const cameraX = 2 * x / sw - 1;
+    const rayDirX = p.dirX + p.planeX * cameraX;
+    const rayDirY = p.dirY + p.planeY * cameraX;
+
+    let mapX = Math.floor(p.x), mapY = Math.floor(p.y);
+    const deltaDistX = Math.abs(1 / rayDirX);
+    const deltaDistY = Math.abs(1 / rayDirY);
+    let stepX, stepY, sideDistX, sideDistY;
+
+    if (rayDirX < 0) { stepX = -1; sideDistX = (p.x - mapX) * deltaDistX; }
+    else { stepX = 1; sideDistX = (mapX + 1 - p.x) * deltaDistX; }
+    if (rayDirY < 0) { stepY = -1; sideDistY = (p.y - mapY) * deltaDistY; }
+    else { stepY = 1; sideDistY = (mapY + 1 - p.y) * deltaDistY; }
+
+    let hit = 0, side = 0, tileType = 0;
+    let depth = 0;
+    while (hit === 0 && depth < CFG.MAX_DEPTH) {
+      if (sideDistX < sideDistY) {
+        sideDistX += deltaDistX;
+        mapX += stepX;
+        side = 0;
+      } else {
+        sideDistY += deltaDistY;
+        mapY += stepY;
+        side = 1;
+      }
+      if (mapX < 0 || mapY < 0 || mapX >= map.W || mapY >= map.H) { hit = 1; tileType = TILE.WALL_FLESH; break; }
+      const t = map.grid[mapY * map.W + mapX];
+      if (t !== TILE.FLOOR) { hit = 1; tileType = t; }
+      depth++;
+    }
+
+    let perpDist;
+    if (side === 0) perpDist = (mapX - p.x + (1 - stepX) / 2) / rayDirX;
+    else perpDist = (mapY - p.y + (1 - stepY) / 2) / rayDirY;
+
+    zbuffer[x] = perpDist;
+
+    const lineH = Math.floor(sh / perpDist);
+    let drawStart = Math.floor(-lineH / 2 + sh / 2);
+    let drawEnd = Math.floor(lineH / 2 + sh / 2);
+    if (drawStart < 0) drawStart = 0;
+    if (drawEnd >= sh) drawEnd = sh - 1;
+
+    // Текстурирование
+    let wallX;
+    if (side === 0) wallX = p.y + perpDist * rayDirY;
+    else wallX = p.x + perpDist * rayDirX;
+    wallX -= Math.floor(wallX);
+
+    let tex;
+    if (tileType === TILE.WALL_FLESH) tex = textures.flesh;
+    else if (tileType === TILE.WALL_VEIN) tex = textures.vein;
+    else if (tileType === TILE.WALL_SLIME) tex = textures.slime;
+    else if (tileType === TILE.EXIT) tex = textures.exit;
+    else tex = textures.flesh;
+
+    let texX = Math.floor(wallX * tex.size);
+    if (side === 0 && rayDirX > 0) texX = tex.size - texX - 1;
+    if (side === 1 && rayDirY < 0) texX = tex.size - texX - 1;
+
+    // Рисуем полосу стены попиксельно
+    const step = tex.size / lineH;
+    let texPos = (drawStart - sh / 2 + lineH / 2) * step;
+    const imgData = sceneCtx.getImageData(x, drawStart, 1, drawEnd - drawStart);
+    const data = imgData.data;
+    const tdata = tex.data;
+    for (let y = 0; y < drawEnd - drawStart; y++) {
+      const texY = Math.floor(texPos) & (tex.size - 1);
+      texPos += step;
+      const tidx = (texY * tex.size + texX) * 4;
+      const pidx = y * 4;
+      // Затенение по расстоянию и стороне
+      const shade = Math.max(0.15, 1 - perpDist / CFG.MAX_DEPTH) * (side === 1 ? 0.7 : 1);
+      data[pidx] = tdata[tidx] * shade;
+      data[pidx+1] = tdata[tidx+1] * shade;
+      data[pidx+2] = tdata[tidx+2] * shade;
+      data[pidx+3] = 255;
+    }
+    sceneCtx.putImageData(imgData, x, drawStart);
+  }
+
+  // Рендер спрайтов (враги + предметы)
+  renderSprites(sw, sh);
+
+  sceneCtx.restore();
+
+  // === МАСКА ТЕМНОТЫ ===
+  renderLightMask(sw, sh);
+
+  // Эффекты повреждения / безумия
+  if (state.damageFlash > 0) {
+    sceneCtx.fillStyle = `rgba(200,0,0,${state.damageFlash * 0.5})`;
+    sceneCtx.fillRect(0, 0, sw, sh);
+  }
+  if (state.player.sanity < 40) {
+    const intensity = (40 - state.player.sanity) / 40;
+    sceneCtx.fillStyle = `rgba(80,0,80,${intensity * 0.3})`;
+    sceneCtx.fillRect(0, 0, sw, sh);
+    // Глитч-шум
+    if (Math.random() < intensity * 0.3) {
+      const gy = Math.random() * sh;
+      const gh = 2 + Math.random() * 8;
+      sceneCtx.fillStyle = `rgba(255,0,255,${intensity * 0.2})`;
+      sceneCtx.fillRect(0, gy, sw, gh);
+    }
+  }
+
+  // Эхолокация
+  if (state.echolocateTimer > 0) {
+    const t = state.echolocateTimer;
+    const radius = (1 - t / 1.5) * Math.max(sw, sh);
+    sceneCtx.strokeStyle = `rgba(100,200,255,${t / 1.5 * 0.8})`;
+    sceneCtx.lineWidth = 3;
+    sceneCtx.beginPath();
+    sceneCtx.arc(sw/2, sh/2, radius, 0, Math.PI*2);
+    sceneCtx.stroke();
+  }
+
+  // Мини-карта
+  renderMinimap();
+
+  // HUD обновление
+  updateHUD();
+}
+
+function renderSprites(sw, sh) {
+  const p = state.player;
+  const sprites = [];
+
+  // Собираем всех спрайтов
+  for (const e of state.enemies) {
+    sprites.push({ x: e.x, y: e.y, kind: 'enemy', ref: e });
+  }
+  for (const it of state.items) {
+    if (!it.taken) sprites.push({ x: it.x, y: it.y, kind: 'item', ref: it });
+  }
+
+  // Сортировка по расстоянию (дальние первые)
+  for (const s of sprites) {
+    s.dist = (s.x - p.x) ** 2 + (s.y - p.y) ** 2;
+  }
+  sprites.sort((a, b) => b.dist - a.dist);
+
+  const invDet = 1 / (p.planeX * p.dirY - p.dirX * p.planeY);
+
+  for (const s of sprites) {
+    const sx = s.x - p.x, sy = s.y - p.y;
+    const transformX = invDet * (p.dirY * sx - p.dirX * sy);
+    const transformY = invDet * (-p.planeY * sx + p.planeX * sy);
+    if (transformY <= 0.1) continue;
+
+    const spriteScreenX = Math.floor((sw / 2) * (1 + transformX / transformY));
+    const spriteH = Math.floor(Math.abs(sh / transformY));
+    const spriteW = spriteH;
+    let drawStartY = Math.floor(-spriteH / 2 + sh / 2);
+    let drawEndY = Math.floor(spriteH / 2 + sh / 2);
+    let drawStartX = Math.floor(-spriteW / 2 + spriteScreenX);
+    let drawEndX = Math.floor(spriteW / 2 + spriteScreenX);
+
+    // Отрисовка процедурного спрайта
+    drawProceduralSprite(s, spriteScreenX, drawStartX, drawEndX, drawStartY, drawEndY, spriteW, spriteH, transformY);
+  }
+}
+
+function drawProceduralSprite(s, spriteScreenX, drawStartX, drawEndX, drawStartY, drawEndY, spriteW, spriteH, dist) {
+  const sw = sceneCanvas.width;
+  const p = state.player;
+
+  if (s.kind === 'enemy') {
+    const e = s.ref;
+    const cx = spriteScreenX;
+    const cy = (drawStartY + drawEndY) / 2;
+    const size = spriteH * 0.4 * (e.type === 'macro' ? 1.6 : 1);
+
+    // Z-buffer проверка (грубо, по центру)
+    const checkX = Math.floor(cx);
+    if (checkX >= 0 && checkX < sw && zbuffer[checkX] < dist) return;
+
+    sceneCtx.save();
+    sceneCtx.translate(cx, cy);
+
+    if (e.type === 'phage') {
+      // Фаг: зелёный многоугольник с шипами
+      const spikes = 8;
+      const pulse = 1 + Math.sin(e.animTime * 6) * 0.1;
+      sceneCtx.fillStyle = '#3a8';
+      sceneCtx.strokeStyle = '#0f0';
+      sceneCtx.lineWidth = 2;
+      sceneCtx.beginPath();
+      for (let i = 0; i < spikes * 2; i++) {
+        const a = (i / (spikes * 2)) * Math.PI * 2;
+        const r = (i % 2 === 0 ? size : size * 0.5) * pulse;
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r;
+        if (i === 0) sceneCtx.moveTo(x, y);
+        else sceneCtx.lineTo(x, y);
+      }
+      sceneCtx.closePath();
+      sceneCtx.fill();
+      sceneCtx.stroke();
+      // Глаз
+      sceneCtx.fillStyle = '#f00';
+      sceneCtx.beginPath();
+      sceneCtx.arc(0, 0, size * 0.25, 0, Math.PI*2);
+      sceneCtx.fill();
+      sceneCtx.fillStyle = '#000';
+      sceneCtx.beginPath();
+      sceneCtx.arc(0, 0, size * 0.1, 0, Math.PI*2);
+      sceneCtx.fill();
+    } else {
+      // Макрофаг: красное пятно с щупальцами
+      const pulse = 1 + Math.sin(e.animTime * 3) * 0.15;
+      sceneCtx.fillStyle = '#a22';
+      for (let t = 0; t < 6; t++) {
+        const a = (t / 6) * Math.PI * 2 + e.animTime * 0.5;
+        const len = size * (0.8 + Math.sin(e.animTime * 2 + t) * 0.3);
+        sceneCtx.beginPath();
+        sceneCtx.moveTo(0, 0);
+        const tx = Math.cos(a) * len;
+        const ty = Math.sin(a) * len;
+        const cx1 = Math.cos(a + 0.3) * len * 0.5;
+        const cy1 = Math.sin(a + 0.3) * len * 0.5;
+        sceneCtx.quadraticCurveTo(cx1, cy1, tx, ty);
+        sceneCtx.quadraticCurveTo(Math.cos(a - 0.3) * len * 0.5, Math.sin(a - 0.3) * len * 0.5, 0, 0);
+        sceneCtx.fill();
+      }
+      // Тело
+      const g = sceneCtx.createRadialGradient(0, 0, 0, 0, 0, size * 0.7 * pulse);
+      g.addColorStop(0, '#f44');
+      g.addColorStop(0.5, '#a22');
+      g.addColorStop(1, '#400');
+      sceneCtx.fillStyle = g;
+      sceneCtx.beginPath();
+      sceneCtx.arc(0, 0, size * 0.7 * pulse, 0, Math.PI*2);
+      sceneCtx.fill();
+      // Рот
+      sceneCtx.fillStyle = '#000';
+      sceneCtx.beginPath();
+      sceneCtx.arc(0, size * 0.2, size * 0.25, 0, Math.PI);
+      sceneCtx.fill();
+    }
+    sceneCtx.restore();
+  } else if (s.kind === 'item') {
+    const it = s.ref;
+    const checkX = Math.floor(spriteScreenX);
+    if (checkX >= 0 && checkX < sw && zbuffer[checkX] < dist) return;
+
+    const cx = spriteScreenX;
+    const cy = (drawStartY + drawEndY) / 2 + spriteH * 0.2;
+    const size = spriteH * 0.15;
+    const bob = Math.sin(state.time * 3 + s.x * 10) * size * 0.2;
+
+    sceneCtx.save();
+    sceneCtx.translate(cx, cy + bob);
+    if (it.type === 'food') {
+      const g = sceneCtx.createRadialGradient(0, 0, 0, 0, 0, size);
+      g.addColorStop(0, '#8cf');
+      g.addColorStop(0.5, '#36a');
+      g.addColorStop(1, '#124');
+      sceneCtx.fillStyle = g;
+      sceneCtx.beginPath();
+      sceneCtx.arc(0, 0, size, 0, Math.PI*2);
+      sceneCtx.fill();
+      // Свечение
+      sceneCtx.fillStyle = 'rgba(100,200,255,0.3)';
+      sceneCtx.beginPath();
+      sceneCtx.arc(0, 0, size * 1.5, 0, Math.PI*2);
+      sceneCtx.fill();
+    } else {
+      // АТФ (батарея)
+      sceneCtx.fillStyle = '#fc3';
+      sceneCtx.fillRect(-size * 0.6, -size * 0.8, size * 1.2, size * 1.6);
+      sceneCtx.fillStyle = '#630';
+      sceneCtx.fillRect(-size * 0.2, -size, size * 0.4, size * 0.2);
+      // Молния
+      sceneCtx.strokeStyle = '#000';
+      sceneCtx.lineWidth = 2;
+      sceneCtx.beginPath();
+      sceneCtx.moveTo(-size * 0.2, -size * 0.4);
+      sceneCtx.lineTo(size * 0.1, 0);
+      sceneCtx.lineTo(-size * 0.1, 0);
+      sceneCtx.lineTo(size * 0.2, size * 0.5);
+      sceneCtx.stroke();
+      // Свечение
+      sceneCtx.fillStyle = 'rgba(255,200,50,0.3)';
+      sceneCtx.beginPath();
+      sceneCtx.arc(0, 0, size * 2, 0, Math.PI*2);
+      sceneCtx.fill();
+    }
+    sceneCtx.restore();
+  }
+}
+
+function renderLightMask(sw, sh) {
+  const p = state.player;
+  lightCtx.clearRect(0, 0, sw, sh);
+
+  // Полная темнота
+  lightCtx.fillStyle = 'rgba(0,0,0,0.98)';
+  lightCtx.fillRect(0, 0, sw, sh);
+
+  lightCtx.globalCompositeOperation = 'destination-out';
+
+  // Базовое зрение (малый круг)
+  const metaBonus = 1 + state.meta.mutations.tapetum * 0.15;
+  const baseRadius = CFG.BASE_LIGHT_RADIUS * metaBonus * (sh / 12);
+  const baseGrad = lightCtx.createRadialGradient(sw/2, sh/2, 0, sw/2, sh/2, baseRadius);
+  baseGrad.addColorStop(0, 'rgba(0,0,0,1)');
+  baseGrad.addColorStop(0.7, 'rgba(0,0,0,0.8)');
+  baseGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  lightCtx.fillStyle = baseGrad;
+  lightCtx.beginPath();
+  lightCtx.arc(sw/2, sh/2, baseRadius, 0, Math.PI*2);
+  lightCtx.fill();
+
+  // Фонарик (конус)
+  if (p.flashlight && p.battery > 0) {
+    const flicker = 1 + (Math.random() - 0.5) * 0.05 * (1 - p.battery / CFG.BATTERY_MAX);
+    const range = CFG.FLASHLIGHT_RANGE * (sh / 12) * flicker;
+    const angle = CFG.FLASHLIGHT_ANGLE;
+    const playerAngle = Math.atan2(p.dirY, p.dirX);
+
+    // Рисуем конус
+    lightCtx.beginPath();
+    lightCtx.moveTo(sw/2, sh/2);
+    const steps = 20;
+    for (let i = 0; i <= steps; i++) {
+      const a = playerAngle - angle + (i / steps) * angle * 2;
+      // Преобразуем мировой угол в экранный (упрощённо)
+      const cosA = Math.cos(a - Math.atan2(p.dirY, p.dirX));
+      // Используем плоскость камеры для проекции
+      const cosRel = Math.cos(a - Math.atan2(p.dirY, p.dirX));
+      if (cosRel < 0.1) continue; // Позади камеры
+      const screenX = sw/2 + Math.tan(a - Math.atan2(p.dirY, p.dirX)) * (sw/2) / Math.tan(CFG.FOV/2);
+      const screenY = sh/2;
+      const dist = range;
+      const px = sw/2 + (screenX - sw/2);
+      const py = sh/2 + dist * 0.3;
+      lightCtx.lineTo(px, py);
+    }
+    lightCtx.closePath();
+
+    const flashGrad = lightCtx.createRadialGradient(sw/2, sh/2, 0, sw/2, sh/2, range);
+    flashGrad.addColorStop(0, 'rgba(0,0,0,1)');
+    flashGrad.addColorStop(0.5, 'rgba(0,0,0,0.9)');
+    flashGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    lightCtx.fillStyle = flashGrad;
+    lightCtx.fill();
+
+    // Дополнительный круг в центре (основное пятно)
+    const centerGrad = lightCtx.createRadialGradient(sw/2, sh/2, 0, sw/2, sh/2, range * 0.6);
+    centerGrad.addColorStop(0, 'rgba(0,0,0,1)');
+    centerGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    lightCtx.fillStyle = centerGrad;
+    lightCtx.beginPath();
+    lightCtx.arc(sw/2, sh/2, range * 0.6, 0, Math.PI*2);
+    lightCtx.fill();
+  }
+
+  // Эхолокация — подсвечивает всё
+  if (state.echolocateTimer > 0) {
+    lightCtx.fillStyle = `rgba(0,0,0,${state.echolocateTimer / 1.5})`;
+    lightCtx.fillRect(0, 0, sw, sh);
+  }
+
+  lightCtx.globalCompositeOperation = 'source-over';
+
+  // Лёгкий красный оттенок (внутри организма)
+  lightCtx.fillStyle = 'rgba(40,0,0,0.15)';
+  lightCtx.fillRect(0, 0, sw, sh);
+}
+
+function renderMinimap() {
+  const mm = minimapCanvas;
+  const ctx = minimapCtx;
+  const p = state.player;
+  const map = state.map;
+  const size = 140;
+  const viewRange = 14; // тайлов вокруг игрока
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(0, 0, size, size);
+
+  const scale = size / (viewRange * 2);
+  const cx = size / 2, cy = size / 2;
+
+  // Рисуем тайлы в радиусе видимости
+  for (let dy = -viewRange; dy <= viewRange; dy++) {
+    for (let dx = -viewRange; dx <= viewRange; dx++) {
+      const wx = Math.floor(p.x) + dx;
+      const wy = Math.floor(p.y) + dy;
+      if (wx < 0 || wy < 0 || wx >= map.W || wy >= map.H) continue;
+      const t = map.grid[wy * map.W + wx];
+      const screenX = cx + dx * scale;
+      const screenY = cy + dy * scale;
+      // Проверяем, в зоне ли света
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const metaBonus = 1 + state.meta.mutations.tapetum * 0.15;
+      const inLight = dist < CFG.BASE_LIGHT_RADIUS * metaBonus * 2 ||
+                     (p.flashlight && p.battery > 0 && isInFlashlightMini(dx, dy));
+      if (!inLight && state.echolocateTimer <= 0) continue;
+
+      if (t === TILE.WALL_FLESH) ctx.fillStyle = '#600';
+      else if (t === TILE.WALL_VEIN) ctx.fillStyle = '#800';
+      else if (t === TILE.WALL_SLIME) ctx.fillStyle = '#360';
+      else if (t === TILE.FLOOR) ctx.fillStyle = '#220';
+      else if (t === TILE.EXIT) ctx.fillStyle = '#fc3';
+      else continue;
+      ctx.fillRect(screenX, screenY, scale + 0.5, scale + 0.5);
+    }
+  }
+
+  // Предметы
+  for (const it of state.items) {
+    if (it.taken) continue;
+    const dx = it.x - p.x, dy = it.y - p.y;
+    if (Math.abs(dx) > viewRange || Math.abs(dy) > viewRange) continue;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const metaBonus = 1 + state.meta.mutations.tapetum * 0.15;
+    if (dist > CFG.BASE_LIGHT_RADIUS * metaBonus * 2 && !(p.flashlight && p.battery > 0 && isInFlashlightMini(dx, dy))) continue;
+    ctx.fillStyle = it.type === 'food' ? '#3cf' : '#fc3';
+    ctx.fillRect(cx + dx * scale - 1, cy + dy * scale - 1, 3, 3);
+  }
+
+  // Враги
+  for (const e of state.enemies) {
+    const dx = e.x - p.x, dy = e.y - p.y;
+    if (Math.abs(dx) > viewRange || Math.abs(dy) > viewRange) continue;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > CFG.FLASHLIGHT_RANGE) continue;
+    if (!hasLineOfSight(map.grid, map.W, p.x, p.y, e.x, e.y)) continue;
+    ctx.fillStyle = e.type === 'phage' ? '#0f0' : '#f44';
+    ctx.fillRect(cx + dx * scale - 2, cy + dy * scale - 2, 4, 4);
+  }
+
+  // Игрок
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 3, 0, Math.PI*2);
+  ctx.fill();
+  // Направление
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + p.dirX * 8, cy + p.dirY * 8);
+  ctx.stroke();
+}
+
+function isInFlashlightMini(dx, dy) {
+  const p = state.player;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist > CFG.FLASHLIGHT_RANGE) return false;
+  const angle = Math.atan2(dy, dx);
+  const playerAngle = Math.atan2(p.dirY, p.dirX);
+  let diff = angle - playerAngle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return Math.abs(diff) < CFG.FLASHLIGHT_ANGLE;
+}
+
+function updateHUD() {
+  const p = state.player;
+  document.querySelector('#hpBar .fill').style.width = (p.hp / CFG.HP_MAX * 100) + '%';
+  document.querySelector('#batBar .fill').style.width = (p.battery / CFG.BATTERY_MAX * 100) + '%';
+  document.querySelector('#sanBar .fill').style.width = (p.sanity / CFG.SANITY_MAX * 100) + '%';
+}
+
+// ============================================================
+// ЗВУК (Web Audio API — всё процедурно)
+// ============================================================
+const audio = {
+  ctx: null,
+  masterGain: null,
+  ambientNode: null,
+  heartbeatInterval: null,
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.value = 0.5;
+    this.masterGain.connect(this.ctx.destination);
+    this.startAmbient();
+    this.startHeartbeat();
+  },
+  startAmbient() {
+    // Розовый шум через буфер
+    const bufferSize = this.ctx.sampleRate * 2;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let b0=0, b1=0, b2=0, b3=0, b4=0, b5=0, b6=0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179;
+      b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.96900 * b2 + white * 0.1538520;
+      b3 = 0.86650 * b3 + white * 0.3104856;
+      b4 = 0.55000 * b4 + white * 0.5329522;
+      b5 = -0.7616 * b5 - white * 0.0168980;
+      data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.05;
+      b6 = white * 0.115926;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 300;
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.15;
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    src.start();
+    this.ambientNode = { src, filter, gain };
+  },
+  startHeartbeat() {
+    const beat = () => {
+      if (!state.running) return;
+      const p = state.player;
+      const intensity = 1 - p.stamina / CFG.STAMINA_MAX;
+      const rate = 0.4 + intensity * 0.5; // Чем меньше стамины, тем чаще
+      const vol = 0.2 + intensity * 0.4;
+      // Два удара
+      for (let i = 0; i < 2; i++) {
+        setTimeout(() => {
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = 50;
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
+          osc.connect(gain);
+          gain.connect(this.masterGain);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.2);
+        }, i * 150);
+      }
+      this.heartbeatInterval = setTimeout(beat, rate * 1000);
+    };
+    beat();
+  },
+  playStep(running) {
+    if (!this.ctx) return;
+    const bufSize = this.ctx.sampleRate * 0.1;
+    const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufSize * 0.1));
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = running ? 800 : 400;
+    const gain = this.ctx.createGain();
+    gain.gain.value = running ? 0.15 : 0.08;
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    src.start();
+  },
+  playHit() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(50, this.ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.3);
+  },
+  playPickup() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.2);
+  },
+  playEnemyNear(dist) {
+    // Периодически для близких врагов
+    if (!this.ctx || Math.random() > 0.02) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 80 + Math.random() * 40;
+    const vol = Math.max(0, 0.15 * (1 - dist / 6));
+    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.5);
+  }
+};
+
+// ============================================================
+// ВВОД
+// ============================================================
+const input = {
+  keys: {},
+  pointerLocked: false,
+  init() {
+    window.addEventListener('keydown', (e) => {
+      this.keys[e.code] = true;
+      if (e.code === 'KeyF' && state.running) {
+        state.player.flashlight = !state.player.flashlight;
+        showMessage(state.player.flashlight ? 'ФОНАРИК ВКЛ' : 'ФОНАРИК ВЫКЛ');
+      }
+      if (e.code === 'KeyE' && state.running && state.meta.mutations.echo > 0 && state.echolocateTimer <= 0) {
+        if (state.player.sanity >= 15) {
+          state.echolocateTimer = 1.5;
+          state.player.sanity -= 15;
+          audio.playPickup();
+        } else {
+          showMessage('НУЖНО БОЛЬШЕ РАЗУМА');
+        }
+      }
+    });
+    window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+
+    sceneCanvas.addEventListener('click', () => {
+      if (state.running && !this.pointerLocked) {
+        sceneCanvas.requestPointerLock();
+      }
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.pointerLocked = document.pointerLockElement === sceneCanvas;
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (this.pointerLocked && state.running) {
+        state.player.dir += e.movementX * CFG.MOUSE_SENS;
+      }
+    });
+  }
+};
+
+// ============================================================
+// СООБЩЕНИЯ
+// ============================================================
+function showMessage(text) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.style.opacity = '1';
+  state.msgTimer = 2;
+}
+
+// ============================================================
+// ГЛАВНЫЙ ЦИКЛ
+// ============================================================
+function gameLoop(t) {
+  if (!state.lastTime) state.lastTime = t;
+  state.dt = Math.min(0.05, (t - state.lastTime) / 1000);
+  state.lastTime = t;
+  state.time += state.dt;
+
+  if (state.running) {
+    updatePlayer(state.dt);
+    for (const e of state.enemies) updateEnemy(e, state.dt);
+    // Звук близких врагов
+    for (const e of state.enemies) {
+      const dx = e.x - state.player.x, dy = e.y - state.player.y;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d < 6) audio.playEnemyNear(d);
+    }
+    render();
+
+    if (state.msgTimer > 0) {
+      state.msgTimer -= state.dt;
+      if (state.msgTimer <= 0) {
+        document.getElementById('msg').style.opacity = '0';
+      }
+    }
+    if (state.screenShake > 0) state.screenShake -= state.dt;
+    if (state.damageFlash > 0) state.damageFlash -= state.dt;
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+// СТАРТ / РЕСТАРТ
+// ============================================================
+function startGame() {
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('deathOverlay').style.display = 'none';
+  generateTextures();
+  const data = generateMap();
+  state.map = data;
+  state.player = data.player;
+  state.enemies = data.enemies;
+  state.items = data.items;
+  state.exitPos = data.exitPos;
+  state.running = true;
+  state.lastTime = 0;
+  state.time = 0;
+  audio.init();
+  showMessage('НАЙДИ СФИНКТЕР');
+  sceneCanvas.requestPointerLock && sceneCanvas.requestPointerLock();
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('restartBtn').addEventListener('click', () => {
+  updateMetaInfo();
+  document.getElementById('deathOverlay').style.display = 'none';
+  document.getElementById('overlay').style.display = 'flex';
+});
+
+function updateMetaInfo() {
+  const m = state.meta;
+  const info = [];
+  info.push(`Забегов: ${m.runs}`);
+  info.push(`Лучшая глубина: ${m.bestDepth}`);
+  info.push(`Клеточная масса: ${m.mass}`);
+  document.getElementById('metaInfo').textContent = info.join(' · ');
+}
+
+// Инициализация
+resize();
+input.init();
+updateMetaInfo();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
